@@ -1,0 +1,26 @@
+/* Widget standalone styles — scoped to #botdesk-root */
+#botdesk-root * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'DM Sans', system-ui, sans-serif; }
+
+:root {
+  --bd-accent:    #7c6df8;
+  --bd-accent2:   #a99dfa;
+  --bd-bg:        #13131a;
+  --bd-bg2:       #1a1a24;
+  --bd-bg3:       #22222f;
+  --bd-border:    rgba(255,255,255,0.12);
+  --bd-text:      #f0eff5;
+  --bd-text2:     #9998a8;
+  --bd-text3:     #5c5b70;
+  --bd-green:     #34d399;
+  --bd-amber:     #fbbf24;
+  --bd-amber-bg:  rgba(251,191,36,0.1);
+  --bd-shadow:    0 4px 24px rgba(0,0,0,0.5);
+}
+
+#botdesk-root ::-webkit-scrollbar       { width: 3px; }
+#botdesk-root ::-webkit-scrollbar-track { background: transparent; }
+#botdesk-root ::-webkit-scrollbar-thumb { background: var(--bd-border); border-radius: 3px; }
+
+@keyframes bd-bounce   { 0%,60%,100%{ transform:translateY(0) } 30%{ transform:translateY(-5px) } }
+@keyframes bd-slideUp  { from { opacity:0; transform: scale(0.9) translateY(12px); } to { opacity:1; transform: scale(1) translateY(0); } }
+@keyframes bd-fadeIn   { from { opacity:0 } to { opacity:1 } }
