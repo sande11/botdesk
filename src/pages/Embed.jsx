@@ -143,7 +143,18 @@ export default function Embed() {
       )}
 
       {/* API key notice */}
-      {selectedApp && (
+      {selectedApp && !selectedApp.apiKey && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 14px', marginBottom: 14, background: 'rgba(251,191,36,0.08)', border: '1px solid rgba(251,191,36,0.25)', borderRadius: 'var(--radius-sm)', fontSize: 12, color: '#fbbf24' }}>
+          <span>⚠</span>
+          <span style={{ flex: 1 }}>
+            The API key for <strong>{selectedApp.name}</strong> is only shown once at creation.
+            To get a new key, go to{' '}
+            <a href="/settings" style={{ color: '#fbbf24', fontWeight: 600 }}>Settings → API Keys</a>
+            {' '}and rotate it — the new key will appear here automatically.
+          </span>
+        </div>
+      )}
+      {selectedApp && selectedApp.apiKey && (
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', marginBottom: 14, background: 'var(--accent-bg)', border: '1px solid var(--accent)', borderRadius: 'var(--radius-sm)', fontSize: 12, color: 'var(--accent2)' }}>
           <span>🔑</span>
           <span>The snippets below use the API key for <strong>{selectedApp.name}</strong>. Each app has a unique key — do not share keys between sites.</span>

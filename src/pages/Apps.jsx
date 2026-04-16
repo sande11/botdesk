@@ -4,6 +4,89 @@ import { useAppsContext } from '../context/AppsContext.js'
 
 const EMPTY_FORM = { name: '', url: '', primaryColor: '#7c6df8', botName: 'AI Assistant', welcomeMessage: 'Hi! How can I help you today?' }
 
+/* ── Shared form body (create + edit modals) ─────────────────────── */
+function FormBody({ form, setForm, errors, showCustomize, setShowCustomize, onSave, saveLabel }) {
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+      <div className="form-group" style={{ marginBottom: 0 }}>
+        <label className="form-label">
+          App name <span style={{ color: 'var(--red)' }}>*</span>
+        </label>
+        <input
+          className="form-input"
+          placeholder="My E-Commerce Store"
+          value={form.name}
+          onChange={(e) => setForm((p) => ({ ...p, name: e.target.value }))}
+          onKeyDown={(e) => e.key === 'Enter' && onSave()}
+          maxLength={100}
+          autoFocus
+        />
+        {errors.name && (
+          <div style={{ color: 'var(--red)', fontSize: 11, marginTop: 4 }}>{errors.name}</div>
+        )}
+      </div>
+
+      <div className="form-group" style={{ marginBottom: 0 }}>
+        <label className="form-label">Website URL</label>
+        <input
+          className="form-input"
+          placeholder="https://example.com"
+          value={form.url}
+          onChange={(e) => setForm((p) => ({ ...p, url: e.target.value }))}
+          maxLength={200}
+        />
+      </div>
+
+      <button
+        type="button"
+        onClick={() => setShowCustomize((s) => !s)}
+        style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'none', border: 'none', color: 'var(--text3)', fontSize: 12, cursor: 'pointer', fontFamily: 'var(--font-sans)', padding: 0, width: 'fit-content' }}
+      >
+        <span style={{ fontSize: 10, display: 'inline-block', transform: showCustomize ? 'rotate(90deg)' : 'none', transition: 'transform 0.15s' }}>▶</span>
+        Customize widget (optional)
+      </button>
+
+      {showCustomize && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 12, paddingLeft: 14, borderLeft: '2px solid var(--border2)' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+            <div className="form-group" style={{ marginBottom: 0 }}>
+              <label className="form-label">Bot name</label>
+              <input
+                className="form-input"
+                placeholder="AI Assistant"
+                value={form.botName}
+                onChange={(e) => setForm((p) => ({ ...p, botName: e.target.value }))}
+                maxLength={50}
+              />
+            </div>
+            <div className="form-group" style={{ marginBottom: 0 }}>
+              <label className="form-label">Accent color</label>
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                <input
+                  type="color"
+                  value={form.primaryColor}
+                  onChange={(e) => setForm((p) => ({ ...p, primaryColor: e.target.value }))}
+                  style={{ width: 38, height: 36, borderRadius: 6, border: '1px solid var(--border2)', cursor: 'pointer', padding: 2, background: 'var(--bg3)', flexShrink: 0 }}
+                />
+                <input
+                  className="form-input"
+                  value={form.primaryColor}
+                  onChange={(e) => setForm((p) => ({ ...p, primaryColor: e.target.value }))}
+                  maxLength={7}
+                />
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
+        <button className="btn btn-primary" onClick={onSave}>{saveLabel}</button>
+      </div>
+    </div>
+  )
+}
+
 /* ── Small reusable modal shell ─────────────────────────────────── */
 function Modal({ onClose, children }) {
   return (
@@ -84,102 +167,6 @@ export default function Apps() {
   const deleteId   = modal?.startsWith('delete:') ? modal.slice(7)   : null
   const editApp    = editId   ? apps.find((a) => a.id === editId)   : null
   const deleteApp_ = deleteId ? apps.find((a) => a.id === deleteId) : null
-
-  /* ── Shared form body (used in create + edit modals) ─────────── */
-  const FormBody = ({ onSave, saveLabel }) => (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-      {/* Required fields */}
-      <div className="form-group" style={{ marginBottom: 0 }}>
-        <label className="form-label">
-          App name <span style={{ color: 'var(--red)' }}>*</span>
-        </label>
-        <input
-          className="form-input"
-          placeholder="My E-Commerce Store"
-          value={form.name}
-          onChange={(e) => setForm((p) => ({ ...p, name: e.target.value }))}
-          onKeyDown={(e) => e.key === 'Enter' && onSave()}
-          maxLength={100}
-          autoFocus
-        />
-        {errors.name && (
-          <div style={{ color: 'var(--red)', fontSize: 11, marginTop: 4 }}>{errors.name}</div>
-        )}
-      </div>
-
-      <div className="form-group" style={{ marginBottom: 0 }}>
-        <label className="form-label">Website URL</label>
-        <input
-          className="form-input"
-          placeholder="https://example.com"
-          value={form.url}
-          onChange={(e) => setForm((p) => ({ ...p, url: e.target.value }))}
-          maxLength={200}
-        />
-      </div>
-
-      {/* Customize toggle */}
-      <button
-        type="button"
-        onClick={() => setShowCustomize((s) => !s)}
-        style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'none', border: 'none', color: 'var(--text3)', fontSize: 12, cursor: 'pointer', fontFamily: 'var(--font-sans)', padding: 0, width: 'fit-content' }}
-      >
-        <span style={{ fontSize: 10, display: 'inline-block', transform: showCustomize ? 'rotate(90deg)' : 'none', transition: 'transform 0.15s' }}>▶</span>
-        Customize widget (optional)
-      </button>
-
-      {showCustomize && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 12, paddingLeft: 14, borderLeft: '2px solid var(--border2)' }}>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-            <div className="form-group" style={{ marginBottom: 0 }}>
-              <label className="form-label">Bot name</label>
-              <input
-                className="form-input"
-                placeholder="AI Assistant"
-                value={form.botName}
-                onChange={(e) => setForm((p) => ({ ...p, botName: e.target.value }))}
-                maxLength={50}
-              />
-            </div>
-            <div className="form-group" style={{ marginBottom: 0 }}>
-              <label className="form-label">Accent color</label>
-              <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                <input
-                  type="color"
-                  value={form.primaryColor}
-                  onChange={(e) => setForm((p) => ({ ...p, primaryColor: e.target.value }))}
-                  style={{ width: 38, height: 36, borderRadius: 6, border: '1px solid var(--border2)', cursor: 'pointer', padding: 2, background: 'var(--bg3)', flexShrink: 0 }}
-                />
-                <input
-                  className="form-input"
-                  value={form.primaryColor}
-                  onChange={(e) => setForm((p) => ({ ...p, primaryColor: e.target.value }))}
-                  maxLength={7}
-                />
-              </div>
-            </div>
-          </div>
-
-          <div className="form-group" style={{ marginBottom: 0 }}>
-            <label className="form-label">Welcome message</label>
-            <input
-              className="form-input"
-              placeholder="Hi! How can I help you today?"
-              value={form.welcomeMessage}
-              onChange={(e) => setForm((p) => ({ ...p, welcomeMessage: e.target.value }))}
-              maxLength={200}
-            />
-          </div>
-        </div>
-      )}
-
-      {/* Actions */}
-      <div style={{ display: 'flex', gap: 8, paddingTop: 4 }}>
-        <button className="btn btn-primary" onClick={onSave} style={{ flex: 1 }}>{saveLabel}</button>
-        <button className="btn btn-ghost" onClick={closeModal}>Cancel</button>
-      </div>
-    </div>
-  )
 
   return (
     <div className="animate-fade-in">
@@ -279,7 +266,9 @@ export default function Apps() {
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14 }}>
                 <div style={{ width: 10, height: 10, borderRadius: '50%', background: app.primaryColor, flexShrink: 0 }} />
                 <code style={{ fontSize: 10.5, color: 'var(--text3)', background: 'var(--bg3)', padding: '3px 8px', borderRadius: 4, flex: 1, overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis' }}>
-                  {app.apiKey.slice(0, 20)}••••
+                  {app.apiKey
+                    ? app.apiKey.slice(0, 20) + '••••'
+                    : (app.apiKeys?.find((k) => k.active)?.key_prefix ?? '••••••••••••••••') + '••••••••'}
                 </code>
               </div>
 
@@ -345,7 +334,12 @@ export default function Apps() {
               Give it a name — you can add the knowledge base afterwards.
             </div>
           </div>
-          <FormBody onSave={saveCreate} saveLabel="Create app →" />
+          <FormBody
+            form={form} setForm={setForm} errors={errors}
+            showCustomize={showCustomize} setShowCustomize={setShowCustomize}
+            onSave={saveCreate} saveLabel="Create app →"
+          />
+          <button className="btn btn-ghost" onClick={closeModal} style={{ marginTop: 8, width: '100%', justifyContent: 'center' }}>Cancel</button>
         </Modal>
       )}
 
@@ -356,7 +350,12 @@ export default function Apps() {
             <div style={{ fontFamily: 'var(--font-serif)', fontSize: 20, marginBottom: 4 }}>Edit app</div>
             <div style={{ fontSize: 13, color: 'var(--text2)' }}>{editApp.name}</div>
           </div>
-          <FormBody onSave={() => saveEdit(editApp.id)} saveLabel="Save changes" />
+          <FormBody
+            form={form} setForm={setForm} errors={errors}
+            showCustomize={showCustomize} setShowCustomize={setShowCustomize}
+            onSave={() => saveEdit(editApp.id)} saveLabel="Save changes"
+          />
+          <button className="btn btn-ghost" onClick={closeModal} style={{ marginTop: 8, width: '100%', justifyContent: 'center' }}>Cancel</button>
         </Modal>
       )}
 

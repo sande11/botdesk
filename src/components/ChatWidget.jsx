@@ -1,8 +1,24 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { sanitize, isValidEmail, isValidPhone, truncate } from '../utils/security.js'
 import { generateId } from '../utils/helpers.js'
-import { findAnswer } from '../utils/knowledgeBase.js'
 import { useRateLimit } from '../hooks/useRateLimit.js'
+import { supabase } from '../lib/supabase.js'
+
+const FUNCTIONS_BASE = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1`
+const FUNCTIONS_URL  = `${FUNCTIONS_BASE}/dashboard`
+
+/** Persist a random visitor ID in localStorage so conversations resume across page loads. */
+function getOrCreateVisitorId() {
+  try {
+    const stored = localStorage.getItem('bd_vid')
+    if (stored) return stored
+    const id = crypto.randomUUID()
+    localStorage.setItem('bd_vid', id)
+    return id
+  } catch {
+    return crypto.randomUUID() // fallback when localStorage is blocked
+  }
+}
 
 const DEFAULT_CONFIG = {
   primaryColor:    '#7c6df8',
@@ -20,8 +36,10 @@ const DEFAULT_CONFIG = {
  *
  * @param {{ config?: object, standalone?: boolean }} props
  */
-export default function ChatWidget({ config = {}, standalone = false, knowledgeBase }) {
-  const cfg = { ...DEFAULT_CONFIG, ...config }
+export default function ChatWidget({ config = {}, standalone = false, appId = null, apiKey = null }) {
+  // widgetConfig is populated from widget-init response (standalone mode only)
+  const [widgetConfig, setWidgetConfig] = useState({})
+  const cfg    = { ...DEFAULT_CONFIG, ...config, ...widgetConfig }
   const accent = cfg.primaryColor
 
   const [open, setOpen]           = useState(false)
@@ -35,6 +53,46 @@ export default function ChatWidget({ config = {}, standalone = false, knowledgeB
   const [escErrors, setEscErrors] = useState({})
   const [escSent, setEscSent]     = useState(false)
   const [unread, setUnread]       = useState(0)
+  // Standalone widget session (populated by widget-init when apiKey is provided)
+  const [widgetSession, setWidgetSession] = useState(null)
+
+  // Reset conversation whenever the selected app changes (dashboard preview mode)
+  useEffect(() => {
+    setMsgs([{ id: generateId(), role: 'bot', content: cfg.welcomeMessage, ts: new Date() }])
+    setShowEsc(false)
+    setEscSent(false)
+    setUnread(0)
+  }, [appId]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Standalone widget: call widget-init once to get session + bot config
+  useEffect(() => {
+    if (!apiKey) return
+    const visitorId = getOrCreateVisitorId()
+    fetch(`${FUNCTIONS_BASE}/widget-init`, {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({ apiKey, visitorId, pageUrl: window.location.href }),
+    })
+      .then((r) => r.json())
+      .then((data) => {
+        if (data.error) { console.error('BotDesk init:', data.error); return }
+        setWidgetSession({ conversationId: data.conversationId, sessionToken: data.sessionToken, visitorId })
+        // Override config with values from the server (bot name, colors, welcome message)
+        const override = {}
+        if (data.botName)        override.botName        = data.botName
+        if (data.primaryColor)   override.primaryColor   = data.primaryColor
+        if (data.welcomeMessage) override.welcomeMessage = data.welcomeMessage
+        if (data.position)       override.position       = data.position
+        setWidgetConfig(override)
+        // Patch the already-rendered welcome bubble with the real welcome message
+        if (data.welcomeMessage) {
+          setMsgs((prev) =>
+            prev.length === 1 ? [{ ...prev[0], content: data.welcomeMessage }] : prev
+          )
+        }
+      })
+      .catch((err) => console.error('BotDesk init failed:', err))
+  }, [apiKey]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const msgsEndRef = useRef(null)
   const inputRef   = useRef(null)
@@ -57,12 +115,12 @@ export default function ChatWidget({ config = {}, standalone = false, knowledgeB
     return msg
   }
 
-  const sendMessage = useCallback(() => {
+  const sendMessage = useCallback(async () => {
     const text = truncate(sanitize(input.trim()), 500)
     if (!text || typing) return
 
     if (!checkRate()) {
-      addMsg('bot', 'You\'re sending messages too quickly. Please wait a moment before trying again.')
+      addMsg('bot', "You're sending messages too quickly. Please wait a moment.")
       setInput('')
       return
     }
@@ -71,20 +129,58 @@ export default function ChatWidget({ config = {}, standalone = false, knowledgeB
     setInput('')
     setTyping(true)
 
-    // Simulate network latency + AI thinking time
-    const delay = 800 + Math.random() * 700
-    setTimeout(() => {
-      setTyping(false)
-      const result = findAnswer(text, knowledgeBase)
-      if (result) {
-        addMsg('bot', result.answer)
+    try {
+      if (apiKey) {
+        // Standalone widget mode — widget-chat with API key + session tokens
+        if (!widgetSession) {
+          setTyping(false)
+          addMsg('bot', 'Still connecting… please try again in a moment.')
+          return
+        }
+        const res = await fetch(`${FUNCTIONS_BASE}/widget-chat`, {
+          method:  'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body:    JSON.stringify({
+            apiKey,
+            conversationId: widgetSession.conversationId,
+            sessionToken:   widgetSession.sessionToken,
+            message:        text,
+            visitorId:      widgetSession.visitorId,
+          }),
+        })
+        const data = await res.json()
+        setTyping(false)
+        addMsg('bot', data.reply ?? "Sorry, I couldn't get a response. Please try again.")
+        if (data.escalationRequired) setTimeout(() => setShowEsc(true), 500)
+      } else if (appId) {
+        // Dashboard preview mode — JWT auth via preview-chat
+        const { data: { session } } = await supabase.auth.getSession()
+        const res = await fetch(`${FUNCTIONS_URL}/apps/${appId}/preview-chat`, {
+          method:  'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization:  `Bearer ${session?.access_token}`,
+          },
+          body: JSON.stringify({ message: text }),
+        })
+        const data = await res.json()
+        setTyping(false)
+        addMsg('bot', data.reply ?? "Sorry, I couldn't get a response. Please try again.")
+        if (data.escalationRequired) setTimeout(() => setShowEsc(true), 500)
       } else {
-        addMsg('bot', "That's a great question! I don't have that in my knowledge base right now. Let me connect you with our team — they'll get back to you quickly.")
-        setTimeout(() => setShowEsc(true), 500)
+        // No app selected — show a placeholder
+        await new Promise((r) => setTimeout(r, 600))
+        setTyping(false)
+        addMsg('bot', 'Please select an app in the Apps page to activate the AI assistant.')
       }
-      if (!open) setUnread((n) => n + 1)
-    }, delay)
-  }, [input, typing, open, checkRate])
+    } catch (err) {
+      console.error('ChatWidget error:', err)
+      setTyping(false)
+      addMsg('bot', 'Something went wrong. Please try again.')
+    }
+
+    if (!open) setUnread((n) => n + 1)
+  }, [input, typing, open, appId, apiKey, widgetSession, checkRate])
 
   const validateEsc = () => {
     const errs = {}

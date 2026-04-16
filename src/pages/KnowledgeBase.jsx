@@ -3,17 +3,59 @@ import { useNavigate } from 'react-router-dom'
 import { useAppsContext } from '../context/AppsContext.js'
 import { truncate } from '../utils/security.js'
 
+function FormFields({ form, setForm, errors, onSave, onCancel, label }) {
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+      {label && <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 2 }}>{label}</div>}
+      <div className="form-group">
+        <label className="form-label">
+          Keywords{' '}
+          <span style={{ color: 'var(--text3)', fontWeight: 400 }}>(comma-separated — these trigger this answer)</span>
+        </label>
+        <input
+          className="form-input"
+          placeholder="pricing, cost, plan, how much"
+          value={form.keywords}
+          onChange={(e) => setForm((p) => ({ ...p, keywords: e.target.value }))}
+          maxLength={300}
+          autoFocus
+        />
+        {errors.keywords && <div style={{ color: 'var(--red)', fontSize: 11, marginTop: 4 }}>{errors.keywords}</div>}
+      </div>
+      <div className="form-group" style={{ marginBottom: 0 }}>
+        <label className="form-label">Answer</label>
+        <textarea
+          className="form-input"
+          placeholder="The answer the bot will give when these keywords match…"
+          value={form.answer}
+          onChange={(e) => setForm((p) => ({ ...p, answer: e.target.value }))}
+          maxLength={1000}
+          style={{ minHeight: 90, resize: 'vertical' }}
+        />
+        {errors.answer && <div style={{ color: 'var(--red)', fontSize: 11, marginTop: 4 }}>{errors.answer}</div>}
+      </div>
+      <div style={{ display: 'flex', gap: 8 }}>
+        <button className="btn btn-primary btn-sm" onClick={onSave}>Save entry</button>
+        <button className="btn btn-ghost btn-sm" onClick={onCancel}>Cancel</button>
+      </div>
+    </div>
+  )
+}
+
 export default function KnowledgeBase() {
   const navigate = useNavigate()
   const {
     apps, selectedAppId, selectedApp, setSelectedAppId,
     addKBEntry, updateKBEntry, deleteKBEntry, toggleKBEntry,
+    reembedKBEntries,
   } = useAppsContext()
 
-  const [adding,  setAdding]  = useState(false)
-  const [editing, setEditing] = useState(null)
-  const [form,    setForm]    = useState({ keywords: '', answer: '' })
-  const [errors,  setErrors]  = useState({})
+  const [adding,       setAdding]       = useState(false)
+  const [editing,      setEditing]      = useState(null)
+  const [form,         setForm]         = useState({ keywords: '', answer: '' })
+  const [errors,       setErrors]       = useState({})
+  const [reembedding,  setReembedding]  = useState(false)
+  const [reembedMsg,   setReembedMsg]   = useState(null)
 
   const validate = (f) => {
     const e = {}
@@ -53,46 +95,23 @@ export default function KnowledgeBase() {
     setErrors({})
   }
 
-  const entries = selectedApp?.knowledgeBase || []
+  const handleReembed = async () => {
+    if (!selectedAppId || reembedding) return
+    setReembedding(true)
+    setReembedMsg(null)
+    try {
+      const result = await reembedKBEntries(selectedAppId)
+      setReembedMsg(result.reembedded === 0
+        ? 'All entries already have embeddings.'
+        : `Re-embedded ${result.reembedded} entr${result.reembedded === 1 ? 'y' : 'ies'}.`)
+    } catch {
+      setReembedMsg('Failed — check console for details.')
+    } finally {
+      setReembedding(false)
+    }
+  }
 
-  const FormFields = ({ onSave, onCancel, label }) => (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-      {label && (
-        <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 2 }}>{label}</div>
-      )}
-      <div className="form-group">
-        <label className="form-label">
-          Keywords{' '}
-          <span style={{ color: 'var(--text3)', fontWeight: 400 }}>(comma-separated — these trigger this answer)</span>
-        </label>
-        <input
-          className="form-input"
-          placeholder="pricing, cost, plan, how much"
-          value={form.keywords}
-          onChange={(e) => setForm((p) => ({ ...p, keywords: e.target.value }))}
-          maxLength={300}
-          autoFocus
-        />
-        {errors.keywords && <div style={{ color: 'var(--red)', fontSize: 11, marginTop: 4 }}>{errors.keywords}</div>}
-      </div>
-      <div className="form-group" style={{ marginBottom: 0 }}>
-        <label className="form-label">Answer</label>
-        <textarea
-          className="form-input"
-          placeholder="The answer the bot will give when these keywords match…"
-          value={form.answer}
-          onChange={(e) => setForm((p) => ({ ...p, answer: e.target.value }))}
-          maxLength={1000}
-          style={{ minHeight: 90, resize: 'vertical' }}
-        />
-        {errors.answer && <div style={{ color: 'var(--red)', fontSize: 11, marginTop: 4 }}>{errors.answer}</div>}
-      </div>
-      <div style={{ display: 'flex', gap: 8 }}>
-        <button className="btn btn-primary btn-sm" onClick={onSave}>Save entry</button>
-        <button className="btn btn-ghost btn-sm" onClick={onCancel}>Cancel</button>
-      </div>
-    </div>
-  )
+  const entries = selectedApp?.knowledgeBase || []
 
   // No apps exist yet
   if (apps.length === 0) {
@@ -125,12 +144,25 @@ export default function KnowledgeBase() {
           </div>
         </div>
         {!adding && selectedApp && (
-          <button
-            className="btn btn-primary"
-            onClick={() => { setAdding(true); setEditing(null); setForm({ keywords: '', answer: '' }); setErrors({}) }}
-          >
-            + Add entry
-          </button>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+            {reembedMsg && (
+              <span style={{ fontSize: 11, color: 'var(--text3)' }}>{reembedMsg}</span>
+            )}
+            <button
+              className="btn btn-ghost btn-sm"
+              onClick={handleReembed}
+              disabled={reembedding}
+              title="Re-embed KB entries that are missing AI embeddings (needed for semantic search)"
+            >
+              {reembedding ? 'Re-embedding…' : 'Fix embeddings'}
+            </button>
+            <button
+              className="btn btn-primary"
+              onClick={() => { setAdding(true); setEditing(null); setForm({ keywords: '', answer: '' }); setErrors({}) }}
+            >
+              + Add entry
+            </button>
+          </div>
         )}
       </div>
 
@@ -178,6 +210,7 @@ export default function KnowledgeBase() {
       {adding && (
         <div className="card" style={{ marginBottom: 14, borderColor: 'var(--accent)' }}>
           <FormFields
+            form={form} setForm={setForm} errors={errors}
             label={`New entry for "${selectedApp?.name}"`}
             onSave={saveNew}
             onCancel={() => { setAdding(false); setErrors({}) }}
@@ -208,6 +241,7 @@ export default function KnowledgeBase() {
           <div key={entry.id} className="card" style={{ opacity: entry.active ? 1 : 0.55 }}>
             {editing === entry.id ? (
               <FormFields
+                form={form} setForm={setForm} errors={errors}
                 label={`Editing entry ${i + 1}`}
                 onSave={() => saveEdit(entry.id)}
                 onCancel={() => { setEditing(null); setErrors({}) }}

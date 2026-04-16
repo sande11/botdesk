@@ -8,11 +8,15 @@ import Apps           from './pages/Apps.jsx'
 import KnowledgeBase  from './pages/KnowledgeBase.jsx'
 import Embed          from './pages/Embed.jsx'
 import Settings       from './pages/Settings.jsx'
+import Login          from './pages/Login.jsx'
 import { useTheme }   from './hooks/useTheme.js'
 import { useApps }    from './hooks/useApps.js'
+import { useAuth }    from './hooks/useAuth.js'
 import { AppsContext } from './context/AppsContext.js'
 
-export default function App() {
+// Separate component so useApps only mounts after auth is confirmed.
+// This prevents useApps from firing its fetch with a null session token.
+function Dashboard({ signOut }) {
   const { theme, setTheme, themes } = useTheme()
   const appsState = useApps()
 
@@ -23,7 +27,7 @@ export default function App() {
           <Sidebar />
 
           <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-            <Topbar theme={theme} setTheme={setTheme} themes={themes} />
+            <Topbar theme={theme} setTheme={setTheme} themes={themes} onSignOut={signOut} />
 
             <main style={{ flex: 1, overflowY: 'auto', padding: 24 }}>
               <Routes>
@@ -38,20 +42,31 @@ export default function App() {
           </div>
         </div>
 
-        {/*
-          Live preview widget — always visible in the dashboard so you can test
-          how each app's bot looks and behaves. Uses the currently selected app's
-          knowledge base so answers stay scoped to that app.
-        */}
         <ChatWidget
+          appId={appsState.selectedAppId}
           config={{
             primaryColor:   appsState.selectedApp?.primaryColor,
             botName:        appsState.selectedApp?.botName,
             welcomeMessage: appsState.selectedApp?.welcomeMessage,
           }}
-          knowledgeBase={appsState.selectedApp?.knowledgeBase}
         />
       </BrowserRouter>
     </AppsContext.Provider>
   )
+}
+
+export default function App() {
+  const { session, loading, signOut } = useAuth()
+
+  if (loading) {
+    return (
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh', background: 'var(--bg)' }}>
+        <div style={{ fontSize: 13, color: 'var(--text3)' }}>Loading…</div>
+      </div>
+    )
+  }
+
+  if (!session) return <Login />
+
+  return <Dashboard signOut={signOut} />
 }

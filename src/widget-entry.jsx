@@ -28,9 +28,14 @@ import './styles/widget.css'
   container.id = 'botdesk-root'
   document.body.appendChild(container)
 
+  const botConfig = window.BotDeskConfig || {}
   ReactDOM.createRoot(container).render(
     <React.StrictMode>
-      <ChatWidget config={window.BotDeskConfig || {}} standalone />
+      <ChatWidget
+        config={botConfig}
+        apiKey={botConfig.apiKey ?? null}
+        standalone
+      />
     </React.StrictMode>
   )
 })()

@@ -9,7 +9,7 @@ const TITLES = {
   '/settings':      'Settings',
 }
 
-export default function Topbar({ theme, setTheme, themes }) {
+export default function Topbar({ theme, setTheme, themes, onSignOut }) {
   const location = useLocation()
   const title    = TITLES[location.pathname] || 'Dashboard'
   const [open, setOpen] = useState(false)
@@ -76,7 +76,11 @@ export default function Topbar({ theme, setTheme, themes }) {
           )}
         </div>
 
-        {/* <button className="btn btn-ghost btn-sm" style={{ fontSize: 12 }}>📤 Export</button> */}
+        {onSignOut && (
+          <button className="btn btn-ghost btn-sm" onClick={onSignOut} style={{ fontSize: 12 }}>
+            Sign out
+          </button>
+        )}
       </div>
     </div>
   )

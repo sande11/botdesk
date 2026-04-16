@@ -1,26 +1,41 @@
-import { DASHBOARD_STATS, DAILY_VOLUME, TOP_TOPICS } from '../utils/mockData.js'
+import { useState, useEffect } from 'react'
+import { supabase } from '../lib/supabase.js'
 
-function StatCard({ label, value, delta, up, icon }) {
+const FUNCTIONS_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/dashboard`
+
+async function dashboardFetch(path) {
+  const { data: { session } } = await supabase.auth.getSession()
+  const res = await fetch(`${FUNCTIONS_URL}${path}`, {
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${session?.access_token}`,
+    },
+  })
+  if (!res.ok) throw new Error(`Request failed: ${res.status}`)
+  return res.json()
+}
+
+function StatCard({ label, value, icon }) {
   return (
     <div className="card">
       <div style={{ fontSize: 12, color: 'var(--text3)', marginBottom: 8, fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.06em' }}>
         {icon} {label}
       </div>
-      <div style={{ fontSize: 26, fontWeight: 600, color: 'var(--text)', lineHeight: 1, marginBottom: 6 }}>{value}</div>
-      <div style={{ fontSize: 12, display: 'flex', alignItems: 'center', gap: 4, color: up ? 'var(--green)' : 'var(--red)' }}>
-        {up ? '↑' : '↓'} {delta} vs last week
-      </div>
+      <div style={{ fontSize: 26, fontWeight: 600, color: 'var(--text)', lineHeight: 1 }}>{value}</div>
     </div>
   )
 }
 
-function BarChart({ title, rows, maxVal }) {
-  const max = maxVal || Math.max(...rows.map((r) => r.count ?? r.pct))
+function BarChart({ title, rows }) {
+  const max = Math.max(...rows.map((r) => r.count ?? r.pct ?? 0), 1)
   return (
     <div className="card">
       <div style={{ fontSize: 12, color: 'var(--text3)', marginBottom: 16, fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.06em' }}>{title}</div>
+      {rows.length === 0 && (
+        <div style={{ fontSize: 13, color: 'var(--text3)', textAlign: 'center', padding: '20px 0' }}>No data yet</div>
+      )}
       {rows.map((r, i) => {
-        const val  = r.count ?? r.pct
+        const val  = r.count ?? r.pct ?? 0
         const pct  = (val / max) * 100
         const color = pct > 70 ? 'var(--accent)' : pct > 40 ? 'var(--green)' : 'var(--text3)'
         return (
@@ -37,40 +52,58 @@ function BarChart({ title, rows, maxVal }) {
   )
 }
 
+const STAT_ICONS = {
+  'Total Conversations': '💬',
+  'Escalated':           '⚠',
+}
+
 export default function Overview() {
+  const [stats,       setStats]       = useState([])
+  const [dailyVolume, setDailyVolume] = useState([])
+  const [loading,     setLoading]     = useState(true)
+
+  useEffect(() => {
+    dashboardFetch('/analytics/overview')
+      .then(({ stats, dailyVolume }) => {
+        setStats(stats ?? [])
+        setDailyVolume(dailyVolume ?? [])
+      })
+      .catch(console.error)
+      .finally(() => setLoading(false))
+  }, [])
+
   return (
     <div className="animate-fade-in">
       <div className="page-title">Overview</div>
-      <div className="page-sub">Last 7 days · All channels</div>
+      <div className="page-sub">All time · All channels</div>
 
-      {/* Stats */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 14, marginBottom: 20 }}>
-        {DASHBOARD_STATS.map((s) => <StatCard key={s.label} {...s} />)}
-      </div>
-
-      {/* Charts */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
-        <BarChart title="Conversations per day" rows={DAILY_VOLUME} />
-        <BarChart title="Top topics" rows={TOP_TOPICS} />
-      </div>
-
-      {/* Recent activity */}
-      <div className="card" style={{ marginTop: 14 }}>
-        <div style={{ fontSize: 12, color: 'var(--text3)', marginBottom: 14, fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Recent activity</div>
-        {[
-          { time: '2 min ago',  icon: '💬', text: 'New conversation started · Amara T.' },
-          { time: '18 min ago', icon: '⚠',  text: 'Escalation triggered · James K. · enterprise contract query' },
-          { time: '1 hr ago',   icon: '✓',  text: 'Conversation resolved · Luca B.' },
-          { time: '2 hr ago',   icon: '📚', text: 'Knowledge base updated · 2 entries added' },
-          { time: '3 hr ago',   icon: '✓',  text: 'Conversation resolved · Priya S.' },
-        ].map((a, i) => (
-          <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 0', borderBottom: i < 4 ? '1px solid var(--border)' : 'none' }}>
-            <span style={{ fontSize: 16 }}>{a.icon}</span>
-            <span style={{ fontSize: 13, color: 'var(--text)', flex: 1 }}>{a.text}</span>
-            <span style={{ fontSize: 11, color: 'var(--text3)', flexShrink: 0 }}>{a.time}</span>
+      {loading ? (
+        <div style={{ fontSize: 13, color: 'var(--text3)', marginTop: 24 }}>Loading…</div>
+      ) : (
+        <>
+          {/* Stats */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: 14, marginBottom: 20 }}>
+            {stats.map((s) => (
+              <StatCard key={s.label} label={s.label} value={s.value} icon={STAT_ICONS[s.label] ?? '📊'} />
+            ))}
+            {stats.length === 0 && (
+              <div className="card" style={{ gridColumn: '1 / -1', textAlign: 'center', padding: '40px 24px' }}>
+                <div style={{ fontSize: 28, marginBottom: 10 }}>📊</div>
+                <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 6 }}>No data yet</div>
+                <div style={{ fontSize: 13, color: 'var(--text2)' }}>Conversations will appear here once your widget starts receiving messages.</div>
+              </div>
+            )}
           </div>
-        ))}
-      </div>
+
+          {/* Charts */}
+          {stats.length > 0 && (
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+              <BarChart title="Conversations per day" rows={dailyVolume} />
+              <BarChart title="Status breakdown" rows={stats.map((s) => ({ label: s.label, count: Number(s.value.replace(/,/g, '')) }))} />
+            </div>
+          )}
+        </>
+      )}
     </div>
   )
 }
