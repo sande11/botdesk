@@ -31,13 +31,14 @@ export interface KBChunk {
 
 /**
  * Synthesize a reply from matched KB chunks using gpt-4o-mini.
- * The system prompt instructs the model to stay grounded in the provided context.
+ * Returns null when the context doesn't contain enough information to answer —
+ * the caller should then fall through to the out-of-scope / escalation path.
  */
 export async function synthesize(
   userMessage: string,
   chunks: KBChunk[],
   botName: string
-): Promise<string> {
+): Promise<string | null> {
   const context = chunks
     .map((c, i) => `[${i + 1}] ${c.answer}`)
     .join('\n\n')
@@ -55,10 +56,11 @@ export async function synthesize(
         {
           role: 'system',
           content: [
-            `You are ${botName}, a helpful support assistant.`,
-            'Answer ONLY using the knowledge base context below.',
-            'Be concise and friendly. Do not make up information.',
-            'If the context doesn\'t fully answer the question, say so.',
+            `You are ${botName}, a helpful and friendly support assistant.`,
+            'Answer the user\'s question using ONLY the knowledge base context provided below.',
+            'Be concise, warm, and conversational.',
+            'Do NOT mention "the context" or "knowledge base" in your reply — just answer naturally.',
+            'If the context does not contain enough information to answer the question, respond with ONLY the exact token: __ESCALATE__',
             '',
             'Knowledge base context:',
             context,
@@ -74,5 +76,9 @@ export async function synthesize(
     throw new Error(`OpenAI chat error ${res.status}: ${err}`)
   }
   const data = await res.json()
-  return data.choices[0].message.content as string
+  const content = (data.choices[0].message.content as string).trim()
+
+  // GPT signals it can't answer from context — caller handles escalation
+  if (content === '__ESCALATE__') return null
+  return content
 }

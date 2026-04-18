@@ -324,20 +324,23 @@ serve(async (req) => {
       const { data: matches } = await sdb.rpc('match_kb_entries', {
         p_app_id:    appId,
         p_embedding: `[${embedding.join(',')}]`,
-        p_threshold: 0.70,
+        p_threshold: 0.60,
         p_limit:     3,
       })
 
       let reply: string
       let escalationRequired = false
 
-      if (matches && matches.length > 0 && (matches[0] as any).similarity >= 0.82) {
-        reply = await synthesize(userMessage, matches as any[], botName)
-      } else if (matches && matches.length > 0) {
-        reply = (matches[0] as any).answer
+      if (matches && matches.length > 0) {
+        const synthesized = await synthesize(userMessage, matches as any[], botName)
+        if (synthesized !== null) {
+          reply = synthesized
+        } else {
+          reply = oosMsg
+          escalationRequired = true
+        }
       } else {
-        // Keyword fallback — handles existing entries whose embedding is still null.
-        // Fetch active KB entries and check if any keyword appears in the user message.
+        // Keyword fallback for entries with null embeddings
         const lowerMsg = userMessage.toLowerCase()
         const { data: kbEntries } = await sdb
           .from('kb_entries')
@@ -350,7 +353,9 @@ serve(async (req) => {
         )
 
         if (hit) {
-          reply = await synthesize(userMessage, [{ ...hit, similarity: 0.85 }], botName)
+          const synthesized = await synthesize(userMessage, [{ ...hit, similarity: 0.85 }], botName)
+          reply = synthesized ?? oosMsg
+          if (synthesized === null) escalationRequired = true
         } else {
           reply = oosMsg
           escalationRequired = true

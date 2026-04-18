@@ -42,37 +42,37 @@ export async function validateApiKey(rawKey: string): Promise<AppContext | null>
   const hash = await sha256(rawKey)
   const db = serviceClient()
 
-  const { data, error } = await db
+  // Step 1: validate the key and get app_id
+  const { data: keyRow, error: keyErr } = await db
     .from('app_api_keys')
-    .select(`
-      app_id,
-      app_settings!inner (
-        allowed_domains,
-        rate_limit_per_min,
-        out_of_scope_msg,
-        escalation_email,
-        escalation_phone
-      )
-    `)
+    .select('app_id')
     .eq('key_hash', hash)
     .eq('active', true)
     .single()
 
-  if (error || !data) return null
+  if (keyErr || !keyRow) return null
+
+  // Step 2: fetch app settings (no direct FK from app_api_keys → app_settings)
+  const { data: settings, error: settingsErr } = await db
+    .from('app_settings')
+    .select('allowed_domains, rate_limit_per_min, out_of_scope_msg, escalation_email, escalation_phone')
+    .eq('app_id', keyRow.app_id)
+    .single()
+
+  if (settingsErr || !settings) return null
 
   // Fire-and-forget: update last_used_at
   db.from('app_api_keys')
     .update({ last_used_at: new Date().toISOString() })
     .eq('key_hash', hash)
 
-  const s = (data as any).app_settings
   return {
-    appId: data.app_id,
-    allowedDomains: s.allowed_domains ?? [],
-    rateLimitPerMin: s.rate_limit_per_min ?? 10,
-    outOfScopeMsg: s.out_of_scope_msg,
-    escalationEmail: s.escalation_email,
-    escalationPhone: s.escalation_phone,
+    appId:           keyRow.app_id,
+    allowedDomains:  (settings as any).allowed_domains    ?? [],
+    rateLimitPerMin: (settings as any).rate_limit_per_min ?? 10,
+    outOfScopeMsg:   (settings as any).out_of_scope_msg   || "I don't have that information just yet. Would you like me to connect you with our team? Reply **Yes** to connect.",
+    escalationEmail: (settings as any).escalation_email   ?? null,
+    escalationPhone: (settings as any).escalation_phone   ?? null,
   }
 }
 

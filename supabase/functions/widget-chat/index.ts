@@ -16,8 +16,7 @@ import { corsHeaders, handlePreflight, isOriginAllowed } from '../_shared/cors.t
 import { validateApiKey, serviceClient, verifySessionToken, checkRateLimit } from '../_shared/auth.ts'
 import { embed, synthesize, KBChunk } from '../_shared/openai.ts'
 
-const HIGH_CONFIDENCE = 0.82
-const LOW_CONFIDENCE  = 0.70
+const MATCH_THRESHOLD = 0.60  // anything above this gets AI synthesis
 
 serve(async (req) => {
   const preflight = handlePreflight(req)
@@ -73,19 +72,58 @@ serve(async (req) => {
 
     const db = serviceClient()
 
-    // Fetch bot name for synthesis
+    // ── "Yes" escalation detection ───────────────────────────────────────────
+    // If the user is replying affirmatively to the bot's escalation prompt,
+    // skip KB search and immediately trigger the escalation form.
+    const lowerMsg = message.toLowerCase().trim()
+    const isAffirmative = ['yes', 'yeah', 'sure', 'ok', 'yep', 'yup', 'please', 'connect me'].some(
+      (w) => lowerMsg === w || lowerMsg.startsWith(w + ' ') || lowerMsg.startsWith(w + ',')
+    )
+
+    if (isAffirmative) {
+      const { data: recentMsgs } = await db
+        .from('messages')
+        .select('role, content')
+        .eq('conversation_id', conversationId)
+        .order('ts', { ascending: false })
+        .limit(3)
+
+      const lastBotMsg = (recentMsgs ?? []).find((m: any) => m.role === 'bot')
+      const wasEscalationPrompt = lastBotMsg?.content && (
+        lastBotMsg.content.includes('connect you with our team') ||
+        lastBotMsg.content.includes('connect you to our team') ||
+        lastBotMsg.content.includes('connect you with the team')
+      )
+
+      if (wasEscalationPrompt) {
+        const confirmReply = "I'll connect you with our team right away! Please fill in your contact details below."
+        const now = new Date().toISOString()
+        await db.from('messages').insert([
+          { conversation_id: conversationId, role: 'user', content: message, ts: now },
+          { conversation_id: conversationId, role: 'bot', content: confirmReply, ts: new Date(Date.now() + 100).toISOString() },
+        ])
+        await db.from('conversations').update({ escalated: true, tags: ['escalated'] }).eq('id', conversationId)
+        return new Response(
+          JSON.stringify({ reply: confirmReply, escalationRequired: true, similarity: 0 }),
+          { status: 200, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } }
+        )
+      }
+    }
+
+    // ── Normal KB flow ───────────────────────────────────────────────────────
     const { data: appRow } = await db
       .from('apps')
       .select('bot_name')
       .eq('id', app.appId)
       .single()
 
-    // Embed user query and search KB
+    const botName = appRow?.bot_name ?? 'Assistant'
+
     const queryEmbedding = await embed(message)
     const { data: matches } = await db.rpc('match_kb_entries', {
       p_app_id: app.appId,
       p_embedding: `[${queryEmbedding.join(',')}]`,
-      p_threshold: LOW_CONFIDENCE,
+      p_threshold: MATCH_THRESHOLD,
       p_limit: 3,
     })
 
@@ -95,22 +133,44 @@ serve(async (req) => {
     let escalationRequired = false
     let matchedEntryId: string | null = null
 
-    if (similarity >= HIGH_CONFIDENCE) {
-      // High confidence: synthesize from KB chunks
+    if (matches && matches.length > 0) {
       const chunks: KBChunk[] = (matches as any[]).map((m) => ({
         answer: m.answer,
         similarity: m.similarity,
       }))
-      reply = await synthesize(message, chunks, appRow?.bot_name ?? 'Assistant')
-      matchedEntryId = topMatch.id
-    } else if (similarity >= LOW_CONFIDENCE) {
-      // Medium confidence: answer + confirmation nudge
-      reply = `${topMatch.answer}\n\nIs that what you were looking for? If not, I can connect you with our team.`
-      matchedEntryId = topMatch.id
+      const synthesized = await synthesize(message, chunks, botName)
+      if (synthesized !== null) {
+        reply = synthesized
+        matchedEntryId = topMatch.id
+      } else {
+        reply = app.outOfScopeMsg
+        escalationRequired = true
+      }
     } else {
-      // Below threshold: out-of-scope, escalate
-      reply = app.outOfScopeMsg
-      escalationRequired = true
+      // No vector match — keyword fallback for entries with null embeddings
+      const { data: kbEntries } = await db
+        .from('kb_entries')
+        .select('id, keywords, answer')
+        .eq('app_id', app.appId)
+        .eq('active', true)
+
+      const hit = (kbEntries ?? []).find((e: any) =>
+        (e.keywords ?? []).some((kw: string) => kw && lowerMsg.includes(kw.toLowerCase()))
+      )
+
+      if (hit) {
+        const synthesized = await synthesize(message, [{ answer: hit.answer, similarity: 0.85 }], botName)
+        if (synthesized !== null) {
+          reply = synthesized
+          matchedEntryId = hit.id
+        } else {
+          reply = app.outOfScopeMsg
+          escalationRequired = true
+        }
+      } else {
+        reply = app.outOfScopeMsg
+        escalationRequired = true
+      }
     }
 
     // Save user message + bot reply
