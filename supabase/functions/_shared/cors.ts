@@ -1,40 +1,36 @@
 /**
- * Per-app CORS enforcement.
- * For widget endpoints: Origin must be in app_settings.allowed_domains (or wildcard '*').
- * For dashboard endpoints: any origin is fine (JWT auth handles security).
+ * Which pages may use a bot through the widget (publishable key).
+ *
+ * allowed_domains entries:
+ *   "example.com"     example.com and any subdomain
+ *   "*.example.com"   subdomains only
+ *   "http://localhost:5173"   an exact origin (handy in development)
+ *   "app"             requests with no Origin header (native mobile apps)
+ * An empty list allows every site; the dashboard warns about it.
  */
-
-export function corsHeaders(origin: string | null): Record<string, string> {
-  return {
-    'Access-Control-Allow-Origin': origin ?? '*',
-    'Access-Control-Allow-Methods': 'GET, POST, PATCH, DELETE, OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type, Authorization, x-api-key',
-    'Access-Control-Max-Age': '86400',
+export function isOriginAllowed(origin: string | null, allowed: string[] | null | undefined): boolean {
+  const list = (allowed ?? []).map((d) => d.trim().toLowerCase()).filter(Boolean)
+  if (!list.length) return true
+  if (!origin || origin === 'null') return list.includes('app')
+  let url: URL
+  try {
+    url = new URL(origin)
+  } catch {
+    return false
   }
-}
-
-export function handlePreflight(req: Request): Response | null {
-  if (req.method === 'OPTIONS') {
-    const origin = req.headers.get('origin')
-    return new Response(null, { status: 204, headers: corsHeaders(origin) })
-  }
-  return null
-}
-
-/**
- * Check if the request origin is allowed for this app.
- * allowed_domains = [] means allow all (useful during dev / not-yet-configured apps).
- */
-export function isOriginAllowed(origin: string | null, allowedDomains: string[]): boolean {
-  if (!allowedDomains || allowedDomains.length === 0) return true
-  if (!origin) return false
-  return allowedDomains.some((domain) => {
-    if (domain === '*') return true
-    try {
-      const url = new URL(origin)
-      return url.hostname === domain || url.hostname.endsWith(`.${domain}`)
-    } catch {
-      return false
+  const host = url.hostname.toLowerCase()
+  return list.some((entry) => {
+    if (entry === 'app') return false
+    if (entry === '*') return true
+    if (entry.includes('://')) {
+      try {
+        return new URL(entry).origin === url.origin
+      } catch {
+        return false
+      }
     }
+    const domain = entry.replace(/^\*\./, '').replace(/\/.*$/, '')
+    if (entry.startsWith('*.')) return host.endsWith(`.${domain}`)
+    return host === domain || host.endsWith(`.${domain}`)
   })
 }
